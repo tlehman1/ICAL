@@ -1,0 +1,58 @@
+name: Build & Deploy Kalender
+
+on:
+  schedule:
+    # Hinweis: GitHub-Cron läuft in UTC und kann sich verzögern.
+    - cron: "7 5 * * *"      # tägliche Garantie ~07:07 Berlin (off-peak)
+    - cron: "*/30 * * * *"   # alle 30 min -> Ergebnisse erscheinen zeitnah
+  workflow_dispatch:          # manuell auslösbar (Actions-Tab -> "Run workflow")
+
+# Nur Lesen im Repo + Deploy-Rechte für GitHub Pages (kein Commit zurück).
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Verhindert parallele Pages-Deploys; laufende werden nicht abgebrochen.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Abhängigkeiten installieren
+        run: pip install -r requirements.txt
+
+      - name: Last-Good-Cache wiederherstellen
+        uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: ical-cache-${{ github.run_id }}
+          restore-keys: |
+            ical-cache-
+
+      - name: Kalender bauen
+        env:
+          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
+        run: python -m src.main config.yaml
+
+      - name: Pages-Artefakt hochladen
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Auf GitHub Pages deployen
+        id: deploy
+        uses: actions/deploy-pages@v4

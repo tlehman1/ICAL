@@ -1,0 +1,31 @@
+# Steuerdatei für den zusammengeführten Sport-Kalender.
+# Hier legst du fest, welche Teams/Serien im Kalender landen.
+
+calendar_name: "Mein Sport-Kalender"
+timezone: Europe/Berlin
+output: public/calendar.ics
+cache_dir: data/cache
+
+sources:
+
+  bundesliga:                   # ⚽ Bundesliga (OpenLigaDB, kein API-Key)
+    enabled: true
+    season: auto                # "auto" = aktuelles Startjahr; oder konkret z.B. 2024
+    # Namen reichen – werden unscharf auf die OpenLigaDB-teamId gemappt.
+    # Weitere Teams einfach hinzufügen:
+    teams:
+      - "Bayer 04 Leverkusen"
+
+  formula1:                     # 🏎️ Formel 1 (Jolpica-F1, kein API-Key)
+    enabled: true
+    season: auto                # "auto" = aktuelles Jahr; oder konkret z.B. 2026
+    sessions: [race, qualifying, sprint, sprint_qualifying]   # keine freien Trainings
+
+  motogp:                       # 🏍️ MotoGP (Pulselive, kein API-Key)
+    enabled: true
+    season: auto
+    sessions: [race, sprint, qualifying]
+
+  worldcup:                     # 🏟️ WM 2026 (football-data.org, Token via FOOTBALL_DATA_TOKEN)
+    enabled: true
+    competition: WC             # alle Spiele, kein Team-Filter

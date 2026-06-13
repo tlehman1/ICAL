@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Editor
+.idea/
+.vscode/
+
+# Generierter Output (wird via GitHub Pages aus dem Action-Artefakt deployt)
+/public/*.ics
+
+# Last-Good-Cache (wird in CI via actions/cache persistiert, nicht eingecheckt)
+/data/cache*/
