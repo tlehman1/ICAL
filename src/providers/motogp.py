@@ -49,7 +49,7 @@ LABELS = {
 }
 
 # Sessions, die eine VOLLE Klassifizierung (statt nur Top-3) bekommen.
-FULL_RESULT_SHORTNAMES = {"RAC", "SPR"}
+FULL_RESULT_SHORTNAMES = {"RAC", "SPR", "Q1", "Q2"}
 
 # Mindest-/Default-Dauer in Minuten (die API liefert date_end teils == date_start)
 DEFAULT_DURATION = {
@@ -75,14 +75,18 @@ log = logging.getLogger("ical.motogp")
 # --------------------------------------------------------------------------- #
 # Formatierung (rein, testbar)
 # --------------------------------------------------------------------------- #
-def format_classification(rows: list[dict]) -> str:
-    """Komplette Klassifizierung: 'Pos. Fahrer (Hersteller) — Zeit/+Abstand — Pkt'."""
+def format_classification(rows: list[dict], show_points: bool = True) -> str:
+    """Komplette Klassifizierung: 'Pos. Fahrer (Team) — Zeit/+Abstand — Pkt'.
+
+    Rennen/Sprint: P1 = Gesamtzeit, sonst +Abstand, mit Punkten.
+    Qualifying: P1 = beste Runde, sonst +Abstand, ohne Punkte (show_points=False).
+    """
     lines = []
     for r in rows:
         pos = r.get("position")
         rider = (r.get("rider") or {}).get("full_name") or "?"
-        con = (r.get("constructor") or {}).get("name") or ""
-        suffix = f" ({con})" if con else ""
+        team = (r.get("team") or {}).get("name") or (r.get("constructor") or {}).get("name") or ""
+        suffix = f" ({team})" if team else ""
         pts = r.get("points")
 
         if pos is None:  # nicht gewertet (DNF/DNS/DSQ)
@@ -97,7 +101,8 @@ def format_classification(rows: list[dict]) -> str:
 
         gap = r.get("gap") or {}
         if pos == 1:
-            timing = r.get("time") or ""
+            # Rennen: Gesamtzeit (time); Qualifying: beste Runde (best_lap.time).
+            timing = r.get("time") or (r.get("best_lap") or {}).get("time") or ""
         else:
             lap = str(gap.get("lap") or "0")
             if lap not in ("0", "", "None"):
@@ -105,7 +110,7 @@ def format_classification(rows: list[dict]) -> str:
             else:
                 g = gap.get("first")
                 timing = f"+{g}" if g else ""
-        pts_str = f" — {pts} Pkt" if pts is not None else ""
+        pts_str = f" — {pts} Pkt" if (show_points and pts is not None) else ""
         timing_str = f" — {timing}" if timing else ""
         lines.append(f"{pos}. {rider}{suffix}{timing_str}{pts_str}")
     return "\n".join(lines)
@@ -221,7 +226,7 @@ class _ResultsResolver:
     def __init__(self, provider: Provider, season: int):
         self.p = provider
         self.season = season
-        self.text_cache = provider.cache.load_json("motogp_results_v2")
+        self.text_cache = provider.cache.load_json("motogp_results_v3")
         self.dirty = False
         self._season_uuid = None
         self._events = None  # Results-Events (lazy)
@@ -249,7 +254,9 @@ class _ResultsResolver:
             if not rows:
                 return None
             if full:
-                text = "🏁 Ergebnis:\n" + format_classification(rows)
+                is_quali = shortname.upper() in ("Q1", "Q2")
+                header = "🏁 Qualifying:" if is_quali else "🏁 Ergebnis:"
+                text = header + "\n" + format_classification(rows, show_points=not is_quali)
             else:
                 entries = [
                     (r.get("position"), (r.get("rider") or {}).get("full_name") or "?",
@@ -381,4 +388,4 @@ class _ResultsResolver:
 
     def flush(self):
         if self.dirty:
-            self.p.cache.save_json("motogp_results_v2", self.text_cache)
+            self.p.cache.save_json("motogp_results_v3", self.text_cache)

@@ -9,7 +9,7 @@ Nach Abschluss:
 - An jedes Rennen wird die Fahrer-WM-Wertung NACH DIESER RUNDE gehängt (Jolpica
   liefert Standings historisch pro Runde – jedes Rennen zeigt also die korrekte
   Tabelle zum jeweiligen Zeitpunkt).
-- Qualifying bleibt kompakt (Pole/Top-3).
+- Qualifying zeigt die volle Aufstellung (Platz, Fahrer, Team, Zeit/Abstand zur Pole).
 
 Ergebnisse werden gecacht, damit abgeschlossene Runden nicht bei jedem Lauf
 erneut abgefragt werden.
@@ -22,7 +22,7 @@ from datetime import datetime, timedelta, timezone
 from dateutil import parser as dtparser
 
 from ..config import resolve_calendar_season
-from ..formatting import format_podium, format_session_summary, format_standings_table
+from ..formatting import format_session_summary, format_standings_table
 from ..models import Event
 from .base import Provider
 
@@ -40,27 +40,11 @@ SESSIONS = {
     "race": (["__race__"], "Rennen", 120, "results"),
 }
 
-# Sessions mit voller Klassifizierung (statt nur Top-3).
-FULL_RESULT_KINDS = {"results", "sprint"}
-
 # Ergebnis-Endpoint -> (Pfad, JSON-Feld)
 RESULT_ENDPOINT = {
     "results": ("results.json", "Results"),
     "sprint": ("sprint.json", "SprintResults"),
     "qualifying": ("qualifying.json", "QualifyingResults"),
-}
-
-# Häufige DNF-/Ausfall-Status -> deutsch (Fallback: Originaltext).
-STATUS_DE = {
-    "Accident": "Unfall", "Collision": "Kollision", "Collision damage": "Kollisionsschaden",
-    "Engine": "Motor", "Gearbox": "Getriebe", "Transmission": "Getriebe",
-    "Hydraulics": "Hydraulik", "Brakes": "Bremsen", "Suspension": "Aufhängung",
-    "Electrical": "Elektrik", "Power Unit": "Antriebseinheit", "Retired": "Aufgabe",
-    "Withdrew": "Zurückgezogen", "Disqualified": "Disqualifiziert", "Puncture": "Reifenschaden",
-    "Overheating": "Überhitzung", "Spun off": "Abflug", "Out of fuel": "Kein Sprit",
-    "Wheel": "Rad", "Tyre": "Reifen", "Fuel system": "Kraftstoffsystem", "Throttle": "Gas",
-    "Clutch": "Kupplung", "Water leak": "Wasserleck", "Oil leak": "Ölleck",
-    "Driveshaft": "Antriebswelle", "Vibrations": "Vibrationen", "Battery": "Batterie",
 }
 
 log = logging.getLogger("ical.formula1")
@@ -71,7 +55,7 @@ log = logging.getLogger("ical.formula1")
 # --------------------------------------------------------------------------- #
 def _timing(row: dict, winner_laps: int):
     """-> (Text, classified?). Sieger: Gesamtzeit; Verfolger: +Abstand;
-    Überrundete: +N Runden; Ausfälle: deutscher Status (classified=False)."""
+    Überrundete: +N Runden; Ausfälle: ('', False) – als DNF formatiert."""
     status = row.get("status") or ""
     pos = str(row.get("position") or "")
     time = (row.get("Time") or {}).get("time")
@@ -88,11 +72,12 @@ def _timing(row: dict, winner_laps: int):
         if behind > 0:
             return f"+{behind} Runde" + ("n" if behind != 1 else ""), True
         return status, True
-    return STATUS_DE.get(status, status), False
+    return "", False
 
 
 def format_f1_classification(rows: list[dict]) -> str:
-    """Komplette Klassifizierung: 'Pos. Fahrer (Team) — Zeit/+Abstand — Pkt'."""
+    """Komplette Klassifizierung: 'Pos. Fahrer (Team) — Zeit/+Abstand — Pkt'.
+    Ausfälle werden als 'DNF, N Runden' dargestellt (analog MotoGP)."""
     if not rows:
         return ""
     try:
@@ -112,8 +97,59 @@ def format_f1_classification(rows: list[dict]) -> str:
             timing_str = f" — {timing}" if timing else ""
             lines.append(f"{r.get('position')}. {name}{suffix}{timing_str}{pts_str}")
         else:
-            detail = f" — {timing}" if timing else " — DNF"
-            lines.append(f"– {name}{suffix}{detail}")
+            laps = r.get("laps")
+            if laps and str(laps) != "0":
+                unit = "Runde" if str(laps) == "1" else "Runden"
+                detail = f"DNF, {laps} {unit}"
+            else:
+                detail = "DNF"
+            lines.append(f"– {name}{suffix} — {detail}")
+    return "\n".join(lines)
+
+
+def _parse_laptime(s):
+    """'1:33.660' -> 93.66 ; '33.660' -> 33.66 ; None/ungültig -> None."""
+    if not s:
+        return None
+    try:
+        if ":" in s:
+            m, rest = s.split(":", 1)
+            return int(m) * 60 + float(rest)
+        return float(s)
+    except (ValueError, TypeError):
+        return None
+
+
+def _best_quali_time(row: dict):
+    """Die für die Startaufstellung maßgebliche Zeit: Q3, sonst Q2, sonst Q1."""
+    for k in ("Q3", "Q2", "Q1"):
+        t = row.get(k)
+        if t:
+            return t
+    return None
+
+
+def format_f1_qualifying(rows: list[dict]) -> str:
+    """Volle Startaufstellung: 'Pos. Fahrer (Team) — Zeit/+Abstand zur Pole'."""
+    if not rows:
+        return ""
+    pole = _parse_laptime(_best_quali_time(rows[0]))
+    lines = []
+    for r in rows:
+        name = (r.get("Driver") or {}).get("familyName") or "?"
+        con = (r.get("Constructor") or {}).get("name") or ""
+        suffix = f" ({con})" if con else ""
+        pos = r.get("position")
+        best = _best_quali_time(r)
+        if not best:
+            lines.append(f"{pos}. {name}{suffix} — —")
+            continue
+        if str(pos) == "1" or pole is None:
+            timing = best
+        else:
+            sec = _parse_laptime(best)
+            timing = f"+{sec - pole:.3f}" if sec is not None else best
+        lines.append(f"{pos}. {name}{suffix} — {timing}")
     return "\n".join(lines)
 
 
@@ -131,7 +167,7 @@ class Formula1Provider(Provider):
         races = data["MRData"]["RaceTable"]["Races"]
         now = datetime.now(timezone.utc)
 
-        cache = self.cache.load_json("f1_results_v2") if self.cache else {}
+        cache = self.cache.load_json("f1_results_v3") if self.cache else {}
         self._dirty = False
 
         events: list[Event] = []
@@ -175,7 +211,7 @@ class Formula1Provider(Provider):
                 )
 
         if self._dirty and self.cache:
-            self.cache.save_json("f1_results_v2", cache)
+            self.cache.save_json("f1_results_v3", cache)
         return events
 
     @staticmethod
@@ -213,14 +249,7 @@ class Formula1Provider(Provider):
             if not rows:
                 return None
             if res_kind == "qualifying":
-                entries = [
-                    (r.get("position"), (r.get("Driver") or {}).get("familyName") or "?",
-                     (r.get("Constructor") or {}).get("name"))
-                    for r in rows[:3]
-                ]
-                if entries[0][0] is None:
-                    return None
-                return "🏁 Pole: " + format_podium(entries)
+                return "🏁 Qualifying:\n" + format_f1_qualifying(rows)
             return "🏁 Ergebnis:\n" + format_f1_classification(rows)
         except Exception as e:  # noqa: BLE001
             log.warning("F1-Ergebnis %s R%s/%s fehlgeschlagen: %s", season, rnd, res_kind, e)

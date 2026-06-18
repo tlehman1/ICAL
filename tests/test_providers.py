@@ -5,7 +5,11 @@ URL die passende Fixture liefert.
 """
 from src.cache import Cache
 from src.providers.bundesliga import BundesligaProvider, final_result
-from src.providers.formula1 import Formula1Provider, format_f1_classification
+from src.providers.formula1 import (
+    Formula1Provider,
+    format_f1_classification,
+    format_f1_qualifying,
+)
 from src.providers.motogp import MotoGPProvider, format_classification, format_standings
 from src.providers.worldcup import WorldCupProvider
 
@@ -111,7 +115,10 @@ F1_RESULTS = {"MRData": {"RaceTable": {"Races": [{"Results": [
      "points": "0", "status": "Accident", "laps": "10"},
 ]}]}}}
 F1_QUALI = {"MRData": {"RaceTable": {"Races": [{"QualifyingResults": [
-    {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"}},
+    {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"},
+     "Q1": "1:30.031", "Q2": "1:29.374", "Q3": "1:29.179"},
+    {"position": "2", "Driver": {"familyName": "Leclerc"}, "Constructor": {"name": "Ferrari"},
+     "Q1": "1:30.243", "Q2": "1:29.165", "Q3": "1:29.407"},
 ]}]}}}
 F1_STANDINGS = {"MRData": {"StandingsTable": {"StandingsLists": [{"round": "1", "DriverStandings": [
     {"position": "1", "points": "25", "Driver": {"familyName": "Verstappen"}},
@@ -146,10 +153,24 @@ def test_formula1_schedule_results_and_standings(tmp_path):
     assert "🏆 WM-Wertung:" in race.description
     assert "1. Verstappen — 25 Pkt" in race.description
     assert "2. Norris — 18 Pkt (-7)" in race.description
-    # Qualifying bleibt kompakt, ohne Standings
-    assert quali.description.startswith("🏁 Pole:")
+    # Qualifying: volle Aufstellung (mit Abstand zur Pole), ohne Standings
+    assert quali.description.startswith("🏁 Qualifying:")
+    assert "1. Verstappen (Red Bull) — 1:29.179" in quali.description
+    assert "2. Leclerc (Ferrari) — +0.228" in quali.description
     assert "WM-Wertung" not in (quali.description or "")
     assert race.location == "Bahrain International Circuit, Sakhir, Bahrain"
+
+
+def test_f1_qualifying_format():
+    rows = [
+        {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"},
+         "Q1": "1:30.031", "Q2": "1:29.374", "Q3": "1:29.179"},
+        {"position": "11", "Driver": {"familyName": "Tsunoda"}, "Constructor": {"name": "RB F1 Team"},
+         "Q1": "1:30.481", "Q2": "1:30.129", "Q3": None},  # in Q2 raus -> Q2-Zeit maßgeblich
+    ]
+    lines = format_f1_qualifying(rows).splitlines()
+    assert lines[0] == "1. Verstappen (Red Bull) — 1:29.179"
+    assert lines[1] == "11. Tsunoda (RB F1 Team) — +0.950"
 
 
 def test_f1_classification_format():
@@ -167,7 +188,7 @@ def test_f1_classification_format():
     assert lines[0] == "1. Verstappen (Red Bull) — 1:30:00.000 — 25 Pkt"
     assert lines[1] == "2. Norris (McLaren) — +5.000 — 18 Pkt"
     assert lines[2] == "17. Zhou (Sauber) — +1 Runde — 0 Pkt"
-    assert lines[3] == "– Sargeant (Williams) — Unfall"
+    assert lines[3] == "– Sargeant (Williams) — DNF, 10 Runden"
 
 
 # --------------------------------------------------------------------------- #
@@ -207,22 +228,39 @@ def test_motogp_filters_class_and_session_and_duration(tmp_path):
 
 
 def test_motogp_classification_format():
+    # Rennen: TEAM-Namen (nicht Hersteller), Gesamtzeit/Abstand, Punkte, DNF.
     rows = [
-        {"position": 1, "rider": {"full_name": "Marc Marquez"}, "constructor": {"name": "Ducati"},
+        {"position": 1, "rider": {"full_name": "Marc Marquez"},
+         "team": {"name": "Ducati Lenovo Team"}, "constructor": {"name": "Ducati"},
          "time": "39:37.244", "gap": {"first": "0.000", "lap": "0"}, "points": 25},
-        {"position": 2, "rider": {"full_name": "Alex Marquez"}, "constructor": {"name": "Ducati"},
+        {"position": 2, "rider": {"full_name": "Alex Marquez"},
+         "team": {"name": "BK8 Gresini Racing MotoGP"}, "constructor": {"name": "Ducati"},
          "time": "39:38.976", "gap": {"first": "1.732", "lap": "0"}, "points": 20},
-        {"position": 16, "rider": {"full_name": "Lapped Guy"}, "constructor": {"name": "KTM"},
-         "gap": {"first": "0.000", "lap": "1"}, "points": 0},
-        {"position": None, "rider": {"full_name": "Joan Mir"}, "constructor": {"name": "Honda"},
-         "gap": {"first": "0.000", "lap": "12"}, "points": 0, "total_laps": 14, "status": "OUTSTND"},
+        {"position": 16, "rider": {"full_name": "Lapped Guy"},
+         "team": {"name": "Red Bull KTM Tech3"}, "gap": {"first": "0.000", "lap": "1"}, "points": 0},
+        {"position": None, "rider": {"full_name": "Joan Mir"},
+         "team": {"name": "Honda HRC Castrol"}, "gap": {"first": "0.000", "lap": "12"},
+         "points": 0, "total_laps": 14, "status": "OUTSTND"},
     ]
     lines = format_classification(rows).splitlines()
-    assert lines[0] == "1. Marc Marquez (Ducati) — 39:37.244 — 25 Pkt"
-    assert lines[1] == "2. Alex Marquez (Ducati) — +1.732 — 20 Pkt"
-    assert lines[2] == "16. Lapped Guy (KTM) — +1 Runde — 0 Pkt"
-    assert lines[3].startswith("– Joan Mir (Honda) — DNF")
+    assert lines[0] == "1. Marc Marquez (Ducati Lenovo Team) — 39:37.244 — 25 Pkt"
+    assert lines[1] == "2. Alex Marquez (BK8 Gresini Racing MotoGP) — +1.732 — 20 Pkt"
+    assert lines[2] == "16. Lapped Guy (Red Bull KTM Tech3) — +1 Runde — 0 Pkt"
+    assert lines[3].startswith("– Joan Mir (Honda HRC Castrol) — DNF")
     assert "14 Runden" in lines[3]
+
+
+def test_motogp_qualifying_format():
+    # Quali: P1 = beste Runde (best_lap.time), sonst +Abstand, OHNE Punkte.
+    rows = [
+        {"position": 1, "rider": {"full_name": "Marc Marquez"}, "team": {"name": "Ducati Lenovo Team"},
+         "time": None, "best_lap": {"time": "01:28.782"}, "gap": {"first": "0.000"}, "points": None},
+        {"position": 2, "rider": {"full_name": "Alex Marquez"}, "team": {"name": "BK8 Gresini Racing MotoGP"},
+         "time": None, "best_lap": {"time": "01:28.928"}, "gap": {"first": "0.146"}, "points": None},
+    ]
+    lines = format_classification(rows, show_points=False).splitlines()
+    assert lines[0] == "1. Marc Marquez (Ducati Lenovo Team) — 01:28.782"
+    assert lines[1] == "2. Alex Marquez (BK8 Gresini Racing MotoGP) — +0.146"
 
 
 def test_motogp_standings_format():

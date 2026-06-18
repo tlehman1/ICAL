@@ -14,7 +14,8 @@ veröffentlicht sie über GitHub Pages.
   DNF-Gründen. Dazu die **Fahrer-WM-Wertung**: bei F1 an *jedes* Rennen (Stand
   nach der jeweiligen Runde, da Jolpica historische Standings liefert), bei
   MotoGP ans *zuletzt gefahrene* Rennen (die MotoGP-API liefert nur den
-  aktuellen Stand). Qualifying bleibt kompakt (Pole / Top-3).
+  aktuellen Stand). Auch das **Qualifying** zeigt die volle Aufstellung mit
+  Zeiten/Abständen. MotoGP nennt die **Teamnamen** (z. B. „Ducati Lenovo Team").
 
 ## Aktuelle Quellen
 
