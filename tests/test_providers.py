@@ -5,7 +5,7 @@ URL die passende Fixture liefert.
 """
 from src.cache import Cache
 from src.providers.bundesliga import BundesligaProvider, final_result
-from src.providers.formula1 import Formula1Provider
+from src.providers.formula1 import Formula1Provider, format_f1_classification
 from src.providers.motogp import MotoGPProvider, format_classification, format_standings
 from src.providers.worldcup import WorldCupProvider
 
@@ -101,15 +101,25 @@ F1_SCHEDULE = {"MRData": {"RaceTable": {"Races": [{
     "Qualifying": {"date": "2024-03-01", "time": "16:00:00Z"},
 }]}}}
 F1_RESULTS = {"MRData": {"RaceTable": {"Races": [{"Results": [
-    {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"}},
-    {"position": "2", "Driver": {"familyName": "Pérez"}, "Constructor": {"name": "Red Bull"}},
+    {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"},
+     "points": "25", "status": "Finished", "Time": {"time": "1:30:00.000"}, "laps": "57"},
+    {"position": "2", "Driver": {"familyName": "Norris"}, "Constructor": {"name": "McLaren"},
+     "points": "18", "status": "Finished", "Time": {"time": "+5.000"}, "laps": "57"},
+    {"position": "18", "Driver": {"familyName": "Zhou"}, "Constructor": {"name": "Sauber"},
+     "points": "0", "status": "Lapped", "Time": {"time": "+2.0"}, "laps": "56"},
+    {"position": "20", "Driver": {"familyName": "Sargeant"}, "Constructor": {"name": "Williams"},
+     "points": "0", "status": "Accident", "laps": "10"},
 ]}]}}}
 F1_QUALI = {"MRData": {"RaceTable": {"Races": [{"QualifyingResults": [
     {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"}},
 ]}]}}}
+F1_STANDINGS = {"MRData": {"StandingsTable": {"StandingsLists": [{"round": "1", "DriverStandings": [
+    {"position": "1", "points": "25", "Driver": {"familyName": "Verstappen"}},
+    {"position": "2", "points": "18", "Driver": {"familyName": "Norris"}},
+]}]}}}
 
 
-def test_formula1_schedule_and_results(tmp_path):
+def test_formula1_schedule_results_and_standings(tmp_path):
     p = Formula1Provider({"season": 2024, "sessions": ["race", "qualifying"]},
                          session=None, cache=Cache(tmp_path))
 
@@ -120,6 +130,8 @@ def test_formula1_schedule_and_results(tmp_path):
             return F1_RESULTS
         if "qualifying.json" in url:
             return F1_QUALI
+        if "driverStandings.json" in url:
+            return F1_STANDINGS
         raise AssertionError(url)
 
     patch_json(p, dispatch)
@@ -127,10 +139,35 @@ def test_formula1_schedule_and_results(tmp_path):
     race = events["f1-2024-1-race@ical"]
     quali = events["f1-2024-1-qualifying@ical"]
     assert race.summary == "🏎️ Bahrain GP - Rennen"
-    assert "P1 Verstappen (Red Bull)" in race.description
-    assert quali.summary == "🏎️ Bahrain GP - Qualifying"
+    assert race.description.startswith("🏁 Ergebnis:")
+    assert "1. Verstappen (Red Bull) — 1:30:00.000 — 25 Pkt" in race.description
+    assert "2. Norris (McLaren) — +5.000 — 18 Pkt" in race.description
+    # voller Renn-Standings-Block ans Rennen gehängt
+    assert "🏆 WM-Wertung:" in race.description
+    assert "1. Verstappen — 25 Pkt" in race.description
+    assert "2. Norris — 18 Pkt (-7)" in race.description
+    # Qualifying bleibt kompakt, ohne Standings
     assert quali.description.startswith("🏁 Pole:")
+    assert "WM-Wertung" not in (quali.description or "")
     assert race.location == "Bahrain International Circuit, Sakhir, Bahrain"
+
+
+def test_f1_classification_format():
+    rows = [
+        {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"},
+         "points": "25", "status": "Finished", "Time": {"time": "1:30:00.000"}, "laps": "57"},
+        {"position": "2", "Driver": {"familyName": "Norris"}, "Constructor": {"name": "McLaren"},
+         "points": "18", "status": "Finished", "Time": {"time": "+5.000"}, "laps": "57"},
+        {"position": "17", "Driver": {"familyName": "Zhou"}, "Constructor": {"name": "Sauber"},
+         "points": "0", "status": "Lapped", "laps": "56"},
+        {"position": "20", "Driver": {"familyName": "Sargeant"}, "Constructor": {"name": "Williams"},
+         "points": "0", "status": "Accident", "laps": "10"},
+    ]
+    lines = format_f1_classification(rows).splitlines()
+    assert lines[0] == "1. Verstappen (Red Bull) — 1:30:00.000 — 25 Pkt"
+    assert lines[1] == "2. Norris (McLaren) — +5.000 — 18 Pkt"
+    assert lines[2] == "17. Zhou (Sauber) — +1 Runde — 0 Pkt"
+    assert lines[3] == "– Sargeant (Williams) — Unfall"
 
 
 # --------------------------------------------------------------------------- #

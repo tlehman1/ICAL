@@ -20,7 +20,7 @@ from datetime import datetime, timedelta, timezone
 
 from dateutil import parser as dtparser
 
-from ..formatting import format_podium, format_session_summary
+from ..formatting import format_podium, format_session_summary, format_standings_table
 from ..config import resolve_calendar_season
 from ..models import Event
 from .base import Provider
@@ -112,20 +112,14 @@ def format_classification(rows: list[dict]) -> str:
 
 
 def format_standings(rows: list[dict]) -> str:
-    """WM-Wertung: 'Pos. Fahrer — Pkt (-Rückstand)'."""
-    if not rows:
-        return ""
-    leader = rows[0].get("points") or 0
-    lines = ["🏆 WM-Wertung:"]
-    for r in rows:
-        pos = r.get("position")
-        rider = (r.get("rider") or {}).get("full_name") or "?"
-        pts = r.get("points") or 0
-        if pos == 1:
-            lines.append(f"{pos}. {rider} — {pts} Pkt")
-        else:
-            lines.append(f"{pos}. {rider} — {pts} Pkt (-{leader - pts})")
-    return "\n".join(lines)
+    """WM-Wertung aus MotoGP-Standings-Rows."""
+    entries = [
+        (int(r["position"]), (r.get("rider") or {}).get("full_name") or "?",
+         int(r.get("points") or 0))
+        for r in rows
+        if r.get("position") is not None
+    ]
+    return format_standings_table(entries)
 
 
 class MotoGPProvider(Provider):

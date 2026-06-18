@@ -36,3 +36,20 @@ def format_podium(entries) -> str:
         else:
             parts.append(f"P{pos} {name}")
     return ", ".join(parts)
+
+
+def format_standings_table(entries, title: str = "🏆 WM-Wertung:") -> str:
+    """Meisterschafts-Wertung. entries: Liste von (pos:int, name:str, points:int).
+    -> 'Pos. Name — X Pkt (-Rückstand zum Führenden)'.
+    """
+    if not entries:
+        return ""
+    leader = int(entries[0][2] or 0)
+    lines = [title]
+    for pos, name, pts in entries:
+        pts = int(pts or 0)
+        if int(pos) == 1:
+            lines.append(f"{pos}. {name} — {pts} Pkt")
+        else:
+            lines.append(f"{pos}. {name} — {pts} Pkt (-{leader - pts})")
+    return "\n".join(lines)

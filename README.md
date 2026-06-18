@@ -9,10 +9,12 @@ veröffentlicht sie über GitHub Pages.
 - **Vor** dem Spiel zeigt der Titel die Teams (`⚽ Leverkusen - Bayern`),
   **nach** Abpfiff das Ergebnis (`⚽ Leverkusen 2:1 Bayern`).
 - Bei Motorsport ein Termin pro Session (Rennen / Qualifying / Sprint).
-  Formel 1 bekommt das Podium in die Beschreibung; **MotoGP-Rennen und
-  -Sprints die komplette Klassifizierung** (jede Platzierung mit Zeit/Abstand
-  und Punkten). Ans zuletzt gefahrene MotoGP-Rennen wird zusätzlich die
-  **aktuelle WM-Wertung** (Fahrer-Standings) gehängt.
+  **Rennen und Sprints (F1 & MotoGP)** bekommen die komplette Klassifizierung
+  in die Beschreibung – jede Platzierung mit Zeit/Abstand, Punkten und
+  DNF-Gründen. Dazu die **Fahrer-WM-Wertung**: bei F1 an *jedes* Rennen (Stand
+  nach der jeweiligen Runde, da Jolpica historische Standings liefert), bei
+  MotoGP ans *zuletzt gefahrene* Rennen (die MotoGP-API liefert nur den
+  aktuellen Stand). Qualifying bleibt kompakt (Pole / Top-3).
 
 ## Aktuelle Quellen
 
