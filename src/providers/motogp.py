@@ -7,6 +7,11 @@ dieser mischt alle Klassen (MotoGP/Moto2/Moto3/MotoE) – wir filtern strikt auf
 Ergebnisse hängen an einem ZWEITEN UUID-Namespace (Results-API). Sie werden
 best-effort über die Kette seasons→events→categories→sessions→classification
 aufgelöst, gecacht und bei jedem Fehler still übersprungen (der Zeitplan bleibt).
+
+Rennen & Sprints bekommen die KOMPLETTE Klassifizierung (Platz, Fahrer, Zeit/
+Abstand, Punkte). Die aktuelle WM-Wertung (Fahrer-Standings) wird zusätzlich an
+das zuletzt gefahrene Rennen gehängt – die Standings-API liefert nur den
+aktuellen Stand, nicht den historischen pro Rennen.
 """
 from __future__ import annotations
 
@@ -15,8 +20,8 @@ from datetime import datetime, timedelta, timezone
 
 from dateutil import parser as dtparser
 
-from ..config import resolve_calendar_season
 from ..formatting import format_podium, format_session_summary
+from ..config import resolve_calendar_season
 from ..models import Event
 from .base import Provider
 
@@ -43,6 +48,9 @@ LABELS = {
     "PR": "Practice",
 }
 
+# Sessions, die eine VOLLE Klassifizierung (statt nur Top-3) bekommen.
+FULL_RESULT_SHORTNAMES = {"RAC", "SPR"}
+
 # Mindest-/Default-Dauer in Minuten (die API liefert date_end teils == date_start)
 DEFAULT_DURATION = {
     "RAC": 60, "SPR": 45, "Q1": 20, "Q2": 20,
@@ -64,6 +72,62 @@ RESULT_SESSION = {
 log = logging.getLogger("ical.motogp")
 
 
+# --------------------------------------------------------------------------- #
+# Formatierung (rein, testbar)
+# --------------------------------------------------------------------------- #
+def format_classification(rows: list[dict]) -> str:
+    """Komplette Klassifizierung: 'Pos. Fahrer (Hersteller) — Zeit/+Abstand — Pkt'."""
+    lines = []
+    for r in rows:
+        pos = r.get("position")
+        rider = (r.get("rider") or {}).get("full_name") or "?"
+        con = (r.get("constructor") or {}).get("name") or ""
+        suffix = f" ({con})" if con else ""
+        pts = r.get("points")
+
+        if pos is None:  # nicht gewertet (DNF/DNS/DSQ)
+            laps = r.get("total_laps")
+            if laps:
+                unit = "Runde" if str(laps) == "1" else "Runden"
+                detail = f"DNF, {laps} {unit}"
+            else:
+                detail = "DNF"
+            lines.append(f"– {rider}{suffix} — {detail}")
+            continue
+
+        gap = r.get("gap") or {}
+        if pos == 1:
+            timing = r.get("time") or ""
+        else:
+            lap = str(gap.get("lap") or "0")
+            if lap not in ("0", "", "None"):
+                timing = f"+{lap} Runde" + ("n" if lap != "1" else "")
+            else:
+                g = gap.get("first")
+                timing = f"+{g}" if g else ""
+        pts_str = f" — {pts} Pkt" if pts is not None else ""
+        timing_str = f" — {timing}" if timing else ""
+        lines.append(f"{pos}. {rider}{suffix}{timing_str}{pts_str}")
+    return "\n".join(lines)
+
+
+def format_standings(rows: list[dict]) -> str:
+    """WM-Wertung: 'Pos. Fahrer — Pkt (-Rückstand)'."""
+    if not rows:
+        return ""
+    leader = rows[0].get("points") or 0
+    lines = ["🏆 WM-Wertung:"]
+    for r in rows:
+        pos = r.get("position")
+        rider = (r.get("rider") or {}).get("full_name") or "?"
+        pts = r.get("points") or 0
+        if pos == 1:
+            lines.append(f"{pos}. {rider} — {pts} Pkt")
+        else:
+            lines.append(f"{pos}. {rider} — {pts} Pkt (-{leader - pts})")
+    return "\n".join(lines)
+
+
 class MotoGPProvider(Provider):
     name = "motogp"
     emoji = "🏍️"
@@ -82,6 +146,7 @@ class MotoGPProvider(Provider):
         resolver = _ResultsResolver(self, season) if self.cache is not None else None
 
         out: list[Event] = []
+        latest_race = None  # (start, Event) – das zuletzt gefahrene Rennen
         for ev in events_data:
             if (ev.get("kind") or "").upper() != "GP":
                 continue
@@ -107,20 +172,31 @@ class MotoGPProvider(Provider):
 
                 description = None
                 if resolver is not None and end < now and b.get("has_results"):
-                    description = resolver.result_text(ev, sn)
-
-                out.append(
-                    Event(
-                        uid=f"motogp-{b['id']}@ical",
-                        start=start,
-                        end=end,
-                        summary=format_session_summary(
-                            self.emoji, gp_name, LABELS.get(sn, sn)
-                        ),
-                        location=circuit,
-                        description=description,
-                        categories=list(self.categories),
+                    description = resolver.result_text(
+                        ev, sn, full=sn in FULL_RESULT_SHORTNAMES
                     )
+
+                event_obj = Event(
+                    uid=f"motogp-{b['id']}@ical",
+                    start=start,
+                    end=end,
+                    summary=format_session_summary(self.emoji, gp_name, LABELS.get(sn, sn)),
+                    location=circuit,
+                    description=description,
+                    categories=list(self.categories),
+                )
+                out.append(event_obj)
+
+                if sn == "RAC" and end < now and (latest_race is None or start > latest_race[0]):
+                    latest_race = (start, event_obj)
+
+        # Aktuelle WM-Wertung an das zuletzt gefahrene Rennen hängen.
+        if resolver is not None and latest_race is not None:
+            standings = resolver.standings_text()
+            if standings:
+                ev = latest_race[1]
+                ev.description = (
+                    f"{ev.description}\n\n{standings}" if ev.description else standings
                 )
 
         if resolver is not None:
@@ -141,17 +217,26 @@ class MotoGPProvider(Provider):
 
 
 class _ResultsResolver:
-    """Löst Ergebnisse über die Results-API auf. Alles fail-safe & gecacht."""
+    """Löst Ergebnisse über die Results-API auf. Alles fail-safe & gecacht.
+
+    Volle Klassifizierungen sind unveränderlich und werden persistent gecacht.
+    Die WM-Wertung ist ein bewegliches Ziel (aktueller Stand) und wird pro Lauf
+    einmal frisch geholt (memoisiert, nicht persistent).
+    """
 
     def __init__(self, provider: Provider, season: int):
         self.p = provider
         self.season = season
-        self.text_cache = provider.cache.load_json("motogp_results")
+        self.text_cache = provider.cache.load_json("motogp_results_v2")
         self.dirty = False
+        self._season_uuid = None
         self._events = None  # Results-Events (lazy)
+        self._cat_uuid = None  # MotoGP-Kategorie (saisonstabil)
         self._sessions_by_event: dict[str, list] = {}
+        self._standings = None  # memoisierter Text pro Lauf
 
-    def result_text(self, broadcast_event: dict, shortname: str):
+    # ---- öffentliche API ---------------------------------------------------
+    def result_text(self, broadcast_event: dict, shortname: str, full: bool = False):
         key = f"{broadcast_event.get('id')}-{shortname}"
         if key in self.text_cache:
             return self.text_cache[key] or None
@@ -167,14 +252,19 @@ class _ResultsResolver:
                 f"{API}/results/session/{target['id']}/classification?test=false"
             )
             rows = cls.get("classification") or []
-            entries = [
-                (r.get("position"), (r.get("rider") or {}).get("full_name") or "?",
-                 (r.get("constructor") or {}).get("name"))
-                for r in rows[:3]
-            ]
-            if not entries or entries[0][0] is None:
+            if not rows:
                 return None
-            text = "🏁 " + format_podium(entries)
+            if full:
+                text = "🏁 Ergebnis:\n" + format_classification(rows)
+            else:
+                entries = [
+                    (r.get("position"), (r.get("rider") or {}).get("full_name") or "?",
+                     (r.get("constructor") or {}).get("name"))
+                    for r in rows[:3]
+                ]
+                if entries[0][0] is None:
+                    return None
+                text = "🏁 " + format_podium(entries)
         except Exception as e:  # noqa: BLE001
             log.warning("MotoGP-Klassifikation fehlgeschlagen: %s", e)
             return None
@@ -182,22 +272,61 @@ class _ResultsResolver:
         self.dirty = True
         return text
 
+    def standings_text(self):
+        if self._standings is not None:
+            return self._standings
+        self._load_events()
+        cat = self._category_uuid()
+        if not self._season_uuid or not cat:
+            self._standings = ""
+            return ""
+        try:
+            data = self.p.get_json(
+                f"{API}/results/standings?seasonUuid={self._season_uuid}&categoryUuid={cat}"
+            )
+            self._standings = format_standings(data.get("classification") or [])
+        except Exception as e:  # noqa: BLE001
+            log.warning("MotoGP-WM-Wertung fehlgeschlagen: %s", e)
+            self._standings = ""
+        return self._standings
+
+    # ---- interne Helfer ----------------------------------------------------
     def _load_events(self):
         if self._events is not None:
             return
         try:
             seasons = self.p.get_json(f"{API}/results/seasons")
-            suid = next((s["id"] for s in seasons if s.get("year") == self.season), None)
+            self._season_uuid = next(
+                (s["id"] for s in seasons if s.get("year") == self.season), None
+            )
             self._events = (
                 self.p.get_json(
-                    f"{API}/results/events?seasonUuid={suid}&isFinished=true"
+                    f"{API}/results/events?seasonUuid={self._season_uuid}&isFinished=true"
                 )
-                if suid
+                if self._season_uuid
                 else []
             )
         except Exception as e:  # noqa: BLE001
             log.warning("MotoGP-Results-Events fehlgeschlagen: %s", e)
             self._events = []
+
+    def _category_uuid(self):
+        """MotoGP-Kategorie-UUID (saisonstabil) von einem echten GP-Event holen."""
+        if self._cat_uuid:
+            return self._cat_uuid
+        self._load_events()
+        for re in self._events:
+            if "test" in (re.get("name") or "").lower():
+                continue
+            try:
+                cats = self.p.get_json(f"{API}/results/categories?eventUuid={re['id']}")
+            except Exception:  # noqa: BLE001
+                continue
+            cat = next((c for c in cats if "motogp" in (c.get("name") or "").lower()), None)
+            if cat:
+                self._cat_uuid = cat["id"]
+                return self._cat_uuid
+        return None
 
     def _match_event(self, broadcast_event: dict):
         self._load_events()
@@ -206,14 +335,12 @@ class _ResultsResolver:
             bday = dtparser.isoparse(bstart).date() if bstart else None
         except Exception:
             bday = None
-        # 1) Datumsüberlappung
         if bday:
             for re in self._events:
                 d0 = self._date(re.get("date_start"))
                 d1 = self._date(re.get("date_end")) or d0
                 if d0 and d1 and d0 <= bday <= d1:
                     return re
-        # 2) Circuit-Name als Fallback
         bc = ((broadcast_event.get("circuit") or {}).get("name") or "").lower()
         if bc:
             for re in self._events:
@@ -226,11 +353,10 @@ class _ResultsResolver:
             return self._sessions_by_event[event_uuid]
         sessions = []
         try:
-            cats = self.p.get_json(
-                f"{API}/results/categories?eventUuid={event_uuid}"
-            )
+            cats = self.p.get_json(f"{API}/results/categories?eventUuid={event_uuid}")
             cat = next((c for c in cats if "motogp" in (c.get("name") or "").lower()), None)
             if cat:
+                self._cat_uuid = self._cat_uuid or cat["id"]
                 sessions = self.p.get_json(
                     f"{API}/results/sessions?eventUuid={event_uuid}&categoryUuid={cat['id']}"
                 )
@@ -261,4 +387,4 @@ class _ResultsResolver:
 
     def flush(self):
         if self.dirty:
-            self.p.cache.save_json("motogp_results", self.text_cache)
+            self.p.cache.save_json("motogp_results_v2", self.text_cache)

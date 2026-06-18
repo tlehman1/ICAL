@@ -6,7 +6,7 @@ URL die passende Fixture liefert.
 from src.cache import Cache
 from src.providers.bundesliga import BundesligaProvider, final_result
 from src.providers.formula1 import Formula1Provider
-from src.providers.motogp import MotoGPProvider
+from src.providers.motogp import MotoGPProvider, format_classification, format_standings
 from src.providers.worldcup import WorldCupProvider
 
 
@@ -167,3 +167,34 @@ def test_motogp_filters_class_and_session_and_duration(tmp_path):
     assert rac.location == "COTA"
     # Mindestdauer erzwungen (date_end == date_start -> +60min für RAC)
     assert (rac.end - rac.start).total_seconds() == 60 * 60
+
+
+def test_motogp_classification_format():
+    rows = [
+        {"position": 1, "rider": {"full_name": "Marc Marquez"}, "constructor": {"name": "Ducati"},
+         "time": "39:37.244", "gap": {"first": "0.000", "lap": "0"}, "points": 25},
+        {"position": 2, "rider": {"full_name": "Alex Marquez"}, "constructor": {"name": "Ducati"},
+         "time": "39:38.976", "gap": {"first": "1.732", "lap": "0"}, "points": 20},
+        {"position": 16, "rider": {"full_name": "Lapped Guy"}, "constructor": {"name": "KTM"},
+         "gap": {"first": "0.000", "lap": "1"}, "points": 0},
+        {"position": None, "rider": {"full_name": "Joan Mir"}, "constructor": {"name": "Honda"},
+         "gap": {"first": "0.000", "lap": "12"}, "points": 0, "total_laps": 14, "status": "OUTSTND"},
+    ]
+    lines = format_classification(rows).splitlines()
+    assert lines[0] == "1. Marc Marquez (Ducati) — 39:37.244 — 25 Pkt"
+    assert lines[1] == "2. Alex Marquez (Ducati) — +1.732 — 20 Pkt"
+    assert lines[2] == "16. Lapped Guy (KTM) — +1 Runde — 0 Pkt"
+    assert lines[3].startswith("– Joan Mir (Honda) — DNF")
+    assert "14 Runden" in lines[3]
+
+
+def test_motogp_standings_format():
+    rows = [
+        {"position": 1, "rider": {"full_name": "Marc Marquez"}, "points": 545},
+        {"position": 2, "rider": {"full_name": "Alex Marquez"}, "points": 467},
+    ]
+    lines = format_standings(rows).splitlines()
+    assert lines[0] == "🏆 WM-Wertung:"
+    assert lines[1] == "1. Marc Marquez — 545 Pkt"
+    assert lines[2] == "2. Alex Marquez — 467 Pkt (-78)"
+    assert format_standings([]) == ""
