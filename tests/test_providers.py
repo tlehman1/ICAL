@@ -165,12 +165,17 @@ def test_f1_qualifying_format():
     rows = [
         {"position": "1", "Driver": {"familyName": "Verstappen"}, "Constructor": {"name": "Red Bull"},
          "Q1": "1:30.031", "Q2": "1:29.374", "Q3": "1:29.179"},
+        # In Q3 (Top 10), aber dort KEINE Zeit (z.B. Crash) -> DNF, NICHT die Q2-Zeit:
+        {"position": "10", "Driver": {"familyName": "Leclerc"}, "Constructor": {"name": "Ferrari"},
+         "Q1": "1:30.243", "Q2": "1:29.165", "Q3": None},
+        # In Q2 ausgeschieden (11.) -> Q2-Zeit ist maßgeblich:
         {"position": "11", "Driver": {"familyName": "Tsunoda"}, "Constructor": {"name": "RB F1 Team"},
-         "Q1": "1:30.481", "Q2": "1:30.129", "Q3": None},  # in Q2 raus -> Q2-Zeit maßgeblich
+         "Q1": "1:30.481", "Q2": "1:30.129", "Q3": None},
     ]
     lines = format_f1_qualifying(rows).splitlines()
     assert lines[0] == "1. Verstappen (Red Bull) — 1:29.179"
-    assert lines[1] == "11. Tsunoda (RB F1 Team) — +0.950"
+    assert lines[1] == "10. Leclerc (Ferrari) — DNF"
+    assert lines[2] == "11. Tsunoda (RB F1 Team) — +0.950"
 
 
 def test_f1_classification_format():

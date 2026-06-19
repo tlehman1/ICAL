@@ -120,35 +120,48 @@ def _parse_laptime(s):
         return None
 
 
-def _best_quali_time(row: dict):
-    """Die für die Startaufstellung maßgebliche Zeit: Q3, sonst Q2, sonst Q1."""
-    for k in ("Q3", "Q2", "Q1"):
-        t = row.get(k)
-        if t:
-            return t
-    return None
+def _quali_decisive_time(row: dict):
+    """Zeit aus der Session, die der Fahrer laut Endposition ERREICHT hat:
+    Pos 1–10 -> Q3, 11–15 -> Q2, sonst Q1.
+
+    Es wird bewusst NICHT auf eine frühere Session zurückgefallen: setzte ein
+    Fahrer in seiner Session keine (gültige) Zeit – z.B. DNF/Crash in Q3 – ist
+    das Ergebnis None und wird als 'DNF' dargestellt, nicht als seine Q2-Zeit.
+    """
+    try:
+        pos = int(row.get("position"))
+    except (TypeError, ValueError):
+        pos = 99
+    if pos <= 10:
+        key = "Q3"
+    elif pos <= 15:
+        key = "Q2"
+    else:
+        key = "Q1"
+    return row.get(key)
 
 
 def format_f1_qualifying(rows: list[dict]) -> str:
-    """Volle Startaufstellung: 'Pos. Fahrer (Team) — Zeit/+Abstand zur Pole'."""
+    """Volle Startaufstellung: 'Pos. Fahrer (Team) — Zeit/+Abstand zur Pole'.
+    Pole zeigt die absolute Zeit, dahinter der Abstand; ohne Zeit -> 'DNF'."""
     if not rows:
         return ""
-    pole = _parse_laptime(_best_quali_time(rows[0]))
+    pole = _parse_laptime(_quali_decisive_time(rows[0]))
     lines = []
     for r in rows:
         name = (r.get("Driver") or {}).get("familyName") or "?"
         con = (r.get("Constructor") or {}).get("name") or ""
         suffix = f" ({con})" if con else ""
         pos = r.get("position")
-        best = _best_quali_time(r)
+        best = _quali_decisive_time(r)
         if not best:
-            lines.append(f"{pos}. {name}{suffix} — —")
+            lines.append(f"{pos}. {name}{suffix} — DNF")
             continue
         if str(pos) == "1" or pole is None:
             timing = best
         else:
             sec = _parse_laptime(best)
-            timing = f"+{sec - pole:.3f}" if sec is not None else best
+            timing = f"{sec - pole:+.3f}" if sec is not None else best
         lines.append(f"{pos}. {name}{suffix} — {timing}")
     return "\n".join(lines)
 
@@ -167,7 +180,7 @@ class Formula1Provider(Provider):
         races = data["MRData"]["RaceTable"]["Races"]
         now = datetime.now(timezone.utc)
 
-        cache = self.cache.load_json("f1_results_v3") if self.cache else {}
+        cache = self.cache.load_json("f1_results_v4") if self.cache else {}
         self._dirty = False
 
         events: list[Event] = []
@@ -211,7 +224,7 @@ class Formula1Provider(Provider):
                 )
 
         if self._dirty and self.cache:
-            self.cache.save_json("f1_results_v3", cache)
+            self.cache.save_json("f1_results_v4", cache)
         return events
 
     @staticmethod
