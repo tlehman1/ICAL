@@ -282,6 +282,7 @@ class Formula1Provider(Provider):
                 (int(d["position"]), (d.get("Driver") or {}).get("familyName") or "?",
                  int(d.get("points") or 0))
                 for d in ds
+                if d.get("position") is not None
             ]
             text = format_standings_table(entries)
         except Exception as e:  # noqa: BLE001

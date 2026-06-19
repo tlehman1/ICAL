@@ -4,7 +4,8 @@ Wir überschreiben pro Instanz ``get_json`` mit einem Dispatcher, der je nach
 URL die passende Fixture liefert.
 """
 from src.cache import Cache
-from src.providers.bundesliga import BundesligaProvider, final_result
+from src.providers.bundesliga import BundesligaProvider
+from src.providers.football import final_result, format_goals
 from src.providers.formula1 import (
     Formula1Provider,
     format_f1_classification,
@@ -32,6 +33,12 @@ OLDB_MATCHES = [
             {"resultName": "Halbzeitergebnis", "resultTypeID": 1, "pointsTeam1": 0, "pointsTeam2": 2},
             {"resultName": "Endergebnis", "resultTypeID": 2, "pointsTeam1": 2, "pointsTeam2": 3},
         ],
+        "goals": [
+            {"scoreTeam1": 0, "scoreTeam2": 1, "matchMinute": 12, "goalGetterName": "Granit Xhaka",
+             "isPenalty": False, "isOwnGoal": False},
+            {"scoreTeam1": 2, "scoreTeam2": 3, "matchMinute": 90, "goalGetterName": "Patrik Schick",
+             "isPenalty": True, "isOwnGoal": False},
+        ],
         "location": {"locationStadium": "Borussia Park", "locationCity": "Mönchengladbach"},
     },
     {  # nicht gewünscht (kein Leverkusen) -> herausgefiltert
@@ -52,6 +59,9 @@ def test_bundesliga_filters_and_formats():
     ev = events[0]
     assert ev.summary == "⚽ Gladbach 2:3 Leverkusen"
     assert "1. Spieltag" in ev.description and "Endergebnis: 2 : 3" in ev.description
+    assert "Tore:" in ev.description
+    assert "0:1 Granit Xhaka (12.)" in ev.description
+    assert "2:3 Patrik Schick (90., Elfmeter)" in ev.description
     assert ev.uid == "bl-1@ical"
     assert ev.location == "Borussia Park, Mönchengladbach"
 
@@ -61,37 +71,61 @@ def test_final_result_ignores_halftime_only():
                                             "pointsTeam1": 1, "pointsTeam2": 0}]}) is None
 
 
+def test_format_goals():
+    goals = [
+        {"scoreTeam1": 1, "scoreTeam2": 0, "matchMinute": 9, "goalGetterName": "A",
+         "isPenalty": False, "isOwnGoal": False},
+        {"scoreTeam1": 1, "scoreTeam2": 1, "matchMinute": 45, "goalGetterName": "B",
+         "isPenalty": True, "isOwnGoal": False},
+        {"scoreTeam1": 2, "scoreTeam2": 1, "matchMinute": 70, "goalGetterName": "C",
+         "isPenalty": False, "isOwnGoal": True},
+    ]
+    out = format_goals(goals).splitlines()
+    assert out == ["Tore:", "1:0 A (9.)", "1:1 B (45., Elfmeter)", "2:1 C (70., Eigentor)"]
+    assert format_goals([]) == ""
+
+
 # --------------------------------------------------------------------------- #
-# WM / World Cup
+# WM / World Cup (OpenLigaDB, deutsche Namen, Torschützen)
 # --------------------------------------------------------------------------- #
-WC = {"matches": [
-    {"id": 10, "utcDate": "2026-06-11T20:00:00Z", "status": "FINISHED", "stage": "GROUP_STAGE",
-     "group": "GROUP_A", "homeTeam": {"name": "Mexico"}, "awayTeam": {"name": "South Africa"},
-     "score": {"fullTime": {"home": 2, "away": 0}}},
-    {"id": 11, "utcDate": "2026-06-12T18:00:00Z", "status": "TIMED", "stage": "GROUP_STAGE",
-     "group": "GROUP_B", "homeTeam": {"name": "Qatar"}, "awayTeam": {"name": "Switzerland"},
-     "score": {"fullTime": {"home": None, "away": None}}},
-]}
+WM = [
+    {  # beendet, mit Toren
+        "matchID": 100, "matchDateTimeUTC": "2026-06-11T19:00:00Z", "matchIsFinished": True,
+        "group": {"groupName": "Gruppenphase 1"},
+        "team1": {"teamId": 1, "teamName": "Mexiko", "shortName": "MEX"},
+        "team2": {"teamId": 2, "teamName": "Südafrika", "shortName": "RSA"},
+        "matchResults": [{"resultName": "Endergebnis", "resultTypeID": 2,
+                          "pointsTeam1": 2, "pointsTeam2": 0}],
+        "goals": [
+            {"scoreTeam1": 1, "scoreTeam2": 0, "matchMinute": 9, "goalGetterName": "Julián Quiñones",
+             "isPenalty": False, "isOwnGoal": False},
+            {"scoreTeam1": 2, "scoreTeam2": 0, "matchMinute": 67, "goalGetterName": "Raúl Jiménez",
+             "isPenalty": True, "isOwnGoal": False},
+        ],
+    },
+    {  # noch nicht gespielt
+        "matchID": 101, "matchDateTimeUTC": "2026-06-12T18:00:00Z", "matchIsFinished": False,
+        "group": {"groupName": "Gruppenphase 1"},
+        "team1": {"teamId": 3, "teamName": "Katar", "shortName": "QAT"},
+        "team2": {"teamId": 4, "teamName": "Schweiz", "shortName": "SUI"},
+        "matchResults": [],
+    },
+]
 
 
-def test_worldcup_formats(monkeypatch):
-    monkeypatch.setenv("FOOTBALL_DATA_TOKEN", "dummy")
-    p = WorldCupProvider({"competition": "WC"}, session=None)
-    patch_json(p, lambda url, **kw: WC)
-    events = sorted(p.fetch(), key=lambda e: e.uid)
-    assert events[0].summary == "🏟️ Mexico 2:0 South Africa"
-    assert "Gruppenphase" in events[0].description
-    assert events[1].summary == "🏟️ Qatar - Switzerland"
-
-
-def test_worldcup_requires_token(monkeypatch):
-    monkeypatch.delenv("FOOTBALL_DATA_TOKEN", raising=False)
-    p = WorldCupProvider({}, session=None)
-    try:
-        p.fetch()
-        assert False, "sollte ohne Token scheitern"
-    except RuntimeError:
-        pass
+def test_worldcup_openligadb_formats():
+    p = WorldCupProvider({"league": "wm26", "season": 2026}, session=None)
+    patch_json(p, lambda url, **kw: WM)
+    events = {e.uid: e for e in p.fetch()}
+    fin = events["wm-100@ical"]
+    upc = events["wm-101@ical"]
+    # volle deutsche Namen (nicht der Ländercode)
+    assert fin.summary == "🏟️ Mexiko 2:0 Südafrika"
+    assert "Endergebnis: 2 : 0" in fin.description
+    assert "1:0 Julián Quiñones (9.)" in fin.description
+    assert "2:0 Raúl Jiménez (67., Elfmeter)" in fin.description
+    assert upc.summary == "🏟️ Katar - Schweiz"
+    assert upc.description == "Gruppenphase 1"
 
 
 # --------------------------------------------------------------------------- #

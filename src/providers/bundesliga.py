@@ -1,35 +1,20 @@
 """Bundesliga-Provider auf Basis von OpenLigaDB (kein API-Key).
 
 Holt die komplette Saison einer Liga und filtert auf die in der Config
-angegebenen Teams (Name -> teamId-Resolver). Vor dem Spiel zeigt der Titel
-die Teams, nach Abpfiff den Score.
+angegebenen Teams (Name -> teamId-Resolver). Vor dem Spiel zeigt der Titel die
+Teams, nach Abpfiff den Score; die Beschreibung führt Spieltag, Endergebnis und
+Torschützen.
 """
 from __future__ import annotations
 
 import logging
-from datetime import timedelta
-
-from dateutil import parser as dtparser
 
 from ..config import resolve_football_season
-from ..formatting import format_match_summary
 from ..models import Event
 from .base import Provider
-
-API = "https://api.openligadb.de"
-MATCH_DURATION = timedelta(hours=2)
+from .football import API, build_football_event, final_result  # noqa: F401 (final_result re-export)
 
 log = logging.getLogger("ical.bundesliga")
-
-
-def final_result(match: dict):
-    """Endergebnis (resultTypeID == 2 / 'Endergebnis') als (home, away) oder None."""
-    for r in match.get("matchResults") or []:
-        if r.get("resultTypeID") == 2 or r.get("resultName") == "Endergebnis":
-            ph, pa = r.get("pointsTeam1"), r.get("pointsTeam2")
-            if ph is not None and pa is not None:
-                return ph, pa
-    return None
 
 
 class BundesligaProvider(Provider):
@@ -47,50 +32,11 @@ class BundesligaProvider(Provider):
 
         events: list[Event] = []
         for m in matches:
-            t1 = m.get("team1") or {}
-            t2 = m.get("team2") or {}
-            if not self._is_wanted(t1, t2, team_ids, wanted):
+            if not self._is_wanted(m.get("team1") or {}, m.get("team2") or {}, team_ids, wanted):
                 continue
-
-            utc = m.get("matchDateTimeUTC")
-            if not utc:
-                continue
-            start = dtparser.isoparse(utc)
-            end = start + MATCH_DURATION
-
-            home = t1.get("shortName") or t1.get("teamName") or "?"
-            away = t2.get("shortName") or t2.get("teamName") or "?"
-
-            result = final_result(m) if m.get("matchIsFinished") else None
-            finished = result is not None
-            sh, sa = result if result else (None, None)
-            summary = format_match_summary(self.emoji, home, away, finished, sh, sa)
-
-            desc = []
-            matchday = (m.get("group") or {}).get("groupName")
-            if matchday:
-                desc.append(matchday)
-            if finished:
-                desc.append(f"Endergebnis: {sh} : {sa}")
-
-            loc = m.get("location") or {}
-            location = None
-            if loc.get("locationStadium"):
-                location = loc["locationStadium"]
-                if loc.get("locationCity"):
-                    location += f", {loc['locationCity']}"
-
-            events.append(
-                Event(
-                    uid=f"bl-{m['matchID']}@ical",
-                    start=start,
-                    end=end,
-                    summary=summary,
-                    location=location,
-                    description="\n".join(desc) or None,
-                    categories=list(self.categories),
-                )
-            )
+            ev = build_football_event(m, self.emoji, self.categories, "bl", use_short_names=True)
+            if ev:
+                events.append(ev)
         return events
 
     def _resolve_team_ids(self, league: str, season: int, wanted: list[str]) -> set:

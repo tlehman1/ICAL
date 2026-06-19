@@ -44,8 +44,6 @@ jobs:
             ical-cache-
 
       - name: Kalender bauen
-        env:
-          FOOTBALL_DATA_TOKEN: ${{ secrets.FOOTBALL_DATA_TOKEN }}
         run: python -m src.main config.yaml
 
       - name: Pages-Artefakt hochladen

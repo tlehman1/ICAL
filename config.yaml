@@ -26,6 +26,7 @@ sources:
     season: auto
     sessions: [race, sprint, qualifying]
 
-  worldcup:                     # 🏟️ WM 2026 (football-data.org, Token via FOOTBALL_DATA_TOKEN)
+  worldcup:                     # 🏟️ WM 2026 (OpenLigaDB, kein API-Key)
     enabled: true
-    competition: WC             # alle Spiele, kein Team-Filter
+    league: wm26                # OpenLigaDB-Shortcut mit Torschützen + Minuten
+    season: 2026                # alle Spiele, kein Team-Filter

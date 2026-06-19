@@ -7,7 +7,9 @@ erzeugt eine `calendar.ics`. GitHub Actions baut sie regelmäßig neu und
 veröffentlicht sie über GitHub Pages.
 
 - **Vor** dem Spiel zeigt der Titel die Teams (`⚽ Leverkusen - Bayern`),
-  **nach** Abpfiff das Ergebnis (`⚽ Leverkusen 2:1 Bayern`).
+  **nach** Abpfiff das Ergebnis (`⚽ Leverkusen 2:1 Bayern`). Bei Fußball
+  (Bundesliga & WM) stehen dann auch die **Torschützen mit Minute** in der
+  Beschreibung. (Karten liefert OpenLigaDB nicht.)
 - Bei Motorsport ein Termin pro Session (Rennen / Qualifying / Sprint).
   **Rennen und Sprints (F1 & MotoGP)** bekommen die komplette Klassifizierung
   in die Beschreibung – jede Platzierung mit Zeit/Abstand, Punkten und
@@ -24,18 +26,16 @@ veröffentlicht sie über GitHub Pages.
 | Bundesliga (gewählte Teams) | ⚽ | [OpenLigaDB](https://www.openligadb.de) | nein |
 | Formel 1 (Rennen/Quali/Sprint) | 🏎️ | [Jolpica-F1](https://github.com/jolpica/jolpica-f1) | nein |
 | MotoGP (Rennen/Quali/Sprint) | 🏍️ | MotoGP Pulselive (inoffiziell) | nein |
-| WM 2026 (alle Spiele) | 🏟️ | [football-data.org](https://www.football-data.org) | **ja** (kostenlos) |
+| WM 2026 (alle Spiele) | 🏟️ | [OpenLigaDB](https://www.openligadb.de) (`wm26`) | nein |
+
+**Alle Quellen sind kostenlos und ohne API-Key** – es ist keinerlei
+Registrierung nötig.
 
 ## Einrichtung (einmalig)
 
-1. **football-data.org-Token** holen (für die WM): kostenlos registrieren auf
-   <https://www.football-data.org/client/register>, Token kopieren.
-2. Token als **GitHub-Secret** hinterlegen: Repo → *Settings* →
-   *Secrets and variables* → *Actions* → *New repository secret*,
-   Name **`FOOTBALL_DATA_TOKEN`**.
-3. **GitHub Pages** aktivieren: Repo → *Settings* → *Pages* →
+1. **GitHub Pages** aktivieren: Repo → *Settings* → *Pages* →
    *Source* = **GitHub Actions**.
-4. **Workflow starten**: Tab *Actions* → „Build & Deploy Kalender" →
+2. **Workflow starten**: Tab *Actions* → „Build & Deploy Kalender" →
    *Run workflow*. Danach läuft er automatisch (täglich + alle 30 min).
 
 ## Abonnieren
@@ -76,7 +76,6 @@ sources:
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python -m pip install -r requirements-dev.txt
-$env:FOOTBALL_DATA_TOKEN = "<dein-token>"   # optional, nur für die WM
 .\.venv\Scripts\python -m src.main config.yaml
 .\.venv\Scripts\python -m pytest             # Tests
 ```
@@ -97,14 +96,13 @@ Das Ergebnis liegt unter `public/calendar.ics`.
 
 ## Hinweise & Grenzen
 
+- **Fußball-Details:** OpenLigaDB liefert Torschützen + Minute (inkl. Elfmeter/
+  Eigentor), aber **keine Karten** – gelbe/rote Karten lassen sich daher nicht
+  anzeigen. Die WM nutzt den community-gepflegten Shortcut `wm26`; die K.-o.-Spiele
+  erscheinen, sobald sie dort eingetragen sind.
 - **MotoGP** nutzt die inoffizielle Pulselive-API (treibt motogp.com an). Sie ist
   kostenlos und vollständig, aber undokumentiert – Ergebnisse werden best-effort
   aufgelöst; bei Problemen bleibt zumindest der Zeitplan erhalten.
-- **WM-Teamnamen** sind englisch (so liefert football-data.org sie). Eine
-  Deutsch-Mapping-Tabelle ließe sich später ergänzen.
-- Falls die `WC`-Competition auf dem free tier mal nicht verfügbar ist, ist
-  [OpenLigaDB](https://api.openligadb.de) (keyless, deutsche Namen) die naheliegende
-  Alternativquelle.
 - GitHub-Cron läuft in UTC und kann sich verzögern; scheduled Workflows werden
   bei langer Repo-Inaktivität automatisch pausiert.
 
