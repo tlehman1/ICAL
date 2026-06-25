@@ -57,12 +57,14 @@ def build_football_event(
     categories: list[str],
     uid_prefix: str,
     use_short_names: bool = True,
+    team_prefix=None,
 ) -> Event | None:
     """Baut ein VEVENT aus einem OpenLigaDB-Match.
 
     Titel vor Abpfiff: 'emoji Heim - Gast'; danach mit Score. Nach Abpfiff
     werden Spieltag/Gruppe, Endergebnis und die Torliste in die Beschreibung
-    geschrieben.
+    geschrieben. ``team_prefix(team_dict) -> str`` darf jedem Team ein Präfix
+    voranstellen (z.B. eine Flagge).
     """
     utc = match.get("matchDateTimeUTC")
     if not utc:
@@ -78,6 +80,13 @@ def build_football_event(
     else:
         home = t1.get("teamName") or t1.get("shortName") or "?"
         away = t2.get("teamName") or t2.get("shortName") or "?"
+
+    if team_prefix:
+        hp, ap = team_prefix(t1), team_prefix(t2)
+        if hp:
+            home = f"{hp} {home}"
+        if ap:
+            away = f"{ap} {away}"
 
     result = final_result(match) if match.get("matchIsFinished") else None
     finished = result is not None

@@ -12,7 +12,7 @@ from src.providers.formula1 import (
     format_f1_qualifying,
 )
 from src.providers.motogp import MotoGPProvider, format_classification, format_standings
-from src.providers.worldcup import WorldCupProvider
+from src.providers.worldcup import WorldCupProvider, flag_for
 
 
 def patch_json(provider, dispatch):
@@ -106,11 +106,21 @@ WM = [
     {  # noch nicht gespielt
         "matchID": 101, "matchDateTimeUTC": "2026-06-12T18:00:00Z", "matchIsFinished": False,
         "group": {"groupName": "Gruppenphase 1"},
-        "team1": {"teamId": 3, "teamName": "Katar", "shortName": "QAT"},
-        "team2": {"teamId": 4, "teamName": "Schweiz", "shortName": "SUI"},
+        "team1": {"teamId": 3, "teamName": "Deutschland", "shortName": "GER"},
+        "team2": {"teamId": 4, "teamName": "Curaçao", "shortName": "CUW"},
         "matchResults": [],
     },
 ]
+
+
+def test_flag_for():
+    assert flag_for("GER") == "🇩🇪"   # FIFA GER -> ISO DE
+    assert flag_for("CUW") == "🇨🇼"
+    assert flag_for("RSA") == "🇿🇦"   # FIFA RSA -> ISO ZA
+    assert flag_for("MEX") == "🇲🇽"
+    assert flag_for("ENG").startswith("🏴")
+    assert flag_for("1B") == ""        # Platzhalter -> keine Flagge
+    assert flag_for("") == ""
 
 
 def test_worldcup_openligadb_formats():
@@ -119,12 +129,12 @@ def test_worldcup_openligadb_formats():
     events = {e.uid: e for e in p.fetch()}
     fin = events["wm-100@ical"]
     upc = events["wm-101@ical"]
-    # volle deutsche Namen (nicht der Ländercode)
-    assert fin.summary == "🏟️ Mexiko 2:0 Südafrika"
+    # Flagge + voller deutscher Name, kein Sport-Emoji davor
+    assert fin.summary == f"{flag_for('MEX')} Mexiko 2:0 {flag_for('RSA')} Südafrika"
     assert "Endergebnis: 2 : 0" in fin.description
     assert "1:0 Julián Quiñones (9.)" in fin.description
     assert "2:0 Raúl Jiménez (67., Elfmeter)" in fin.description
-    assert upc.summary == "🏟️ Katar - Schweiz"
+    assert upc.summary == f"{flag_for('GER')} Deutschland - {flag_for('CUW')} Curaçao"
     assert upc.description == "Gruppenphase 1"
 
 

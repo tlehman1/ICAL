@@ -9,7 +9,8 @@ veröffentlicht sie über GitHub Pages.
 - **Vor** dem Spiel zeigt der Titel die Teams (`⚽ Leverkusen - Bayern`),
   **nach** Abpfiff das Ergebnis (`⚽ Leverkusen 2:1 Bayern`). Bei Fußball
   (Bundesliga & WM) stehen dann auch die **Torschützen mit Minute** in der
-  Beschreibung. (Karten liefert OpenLigaDB nicht.)
+  Beschreibung. (Karten liefert OpenLigaDB nicht.) Bei der **WM** steht zudem
+  die **Länderflagge** vor jedem Team (`🇩🇪 Deutschland - 🇨🇼 Curaçao`).
 - Bei Motorsport ein Termin pro Session (Rennen / Qualifying / Sprint).
   **Rennen und Sprints (F1 & MotoGP)** bekommen die komplette Klassifizierung
   in die Beschreibung – jede Platzierung mit Zeit/Abstand, Punkten und
